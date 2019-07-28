@@ -45,7 +45,6 @@ class ImageNetInput(object):
                transpose_input,
                data_dir,
                image_size=224,
-               num_parallel_calls=64,
                cache=False):
     self.image_preprocessing_fn = preprocessing.preprocess_image
     self.is_training = is_training
@@ -58,9 +57,9 @@ class ImageNetInput(object):
     ((train_data, train_labels),
     (eval_data, eval_labels)) = tf.keras.datasets.mnist.load_data()
     
-    self.train_data = train_data/np.float32(255)
+    self.train_data = train_data#/np.float32(255)
     self.train_labels = np.array(train_labels, dtype = np.int32)
-    self.eval_data = eval_data/np.float32(255)
+    self.eval_data = eval_data#/np.float32(255)
     self.eval_labels = np.array(eval_labels, dtype = np.int32)
 
   def set_shapes(self, batch_size, images, labels):
@@ -82,8 +81,8 @@ class ImageNetInput(object):
     if self.is_training:
       train_dataset = tf.data.Dataset.from_tensor_slices((self.train_data,
                                                           self.train_labels))
-      train_dataset.shuffle(1024)
-      train_dataset.repeat()
+      train_dataset.shuffle(-1)
+      #train_dataset.repeat()
       return train_dataset
     else:
       eval_dataset= tf.data.Dataset.from_tensor_slices((self.eval_data,
@@ -130,7 +129,7 @@ class ImageNetInput(object):
 
     # Assign static batch size dimension
     dataset = dataset.map(functools.partial(self.set_shapes, batch_size))
-    
+    dataset = dataset.repeat()
     # Prefetch overlaps in-feed with training
     dataset = dataset.prefetch(tf.contrib.data.AUTOTUNE)
     return dataset

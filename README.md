@@ -1,2 +1,2 @@
 # efficient_net
-Modifying the efficientnet implementation from https://github.com/tensorflow/tpu/tree/master/models/official/efficientnet to make it run locally on a given dataset.
+Modified the EfficientNet implementation from https://github.com/tensorflow/tpu/tree/master/models/official/efficientnet to run locally on a dummy dataset(MNIST).

@@ -26,39 +26,19 @@ import numpy as np
 import tensorflow as tf
 
 import efficientnet_builder
-import mnist_input as imagenet_input
+import mnist_input
 import utils
 from tensorflow.contrib.tpu.python.tpu import async_checkpoint
 from tensorflow.contrib.training.python.training import evaluation
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.estimator import estimator
 
+# good settings for training are corresponding to phi=-9
+# --input_image_size=64 --depth_coefficient = 0.19 --width_coefficient = 0.42
 
 FLAGS = flags.FLAGS
 
 FAKE_DATA_DIR = 'Data/'
-
-flags.DEFINE_bool(
-    'use_tpu', default=False,
-    help=('Use TPU to execute the model for training and evaluation. If'
-          ' --use_tpu=false, will use whatever devices are available to'
-          ' TensorFlow by default (e.g. CPU and GPU)'))
-
-# Cloud TPU Cluster Resolvers
-flags.DEFINE_string(
-    'tpu', default=None,
-    help='The Cloud TPU to use for training. This should be either the name '
-    'used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 url.')
-
-flags.DEFINE_string(
-    'gcp_project', default=None,
-    help='Project name for the Cloud TPU-enabled project. If not specified, we '
-    'will attempt to automatically detect the GCE project from metadata.')
-
-flags.DEFINE_string(
-    'tpu_zone', default=None,
-    help='GCE zone where the Cloud TPU is located in. If not specified, we '
-    'will attempt to automatically detect the GCE project from metadata.')
 
 # Model specific flags
 flags.DEFINE_string(
@@ -81,7 +61,7 @@ flags.DEFINE_string(
     help='One of {"train_and_eval", "train", "eval"}.')
 
 flags.DEFINE_integer(
-    'train_steps', default=10000,#218949,
+    'train_steps', default=50000,#218949,
     help=('The number of steps to use for training. Default is 218949 steps'
           ' which is approximately 350 epochs at batch size 2048. This flag'
           ' should be adjusted according to the --train_batch_size flag.'))
@@ -91,19 +71,19 @@ flags.DEFINE_integer(
     help=('Input image size: it depends on specific model name.'))
 
 flags.DEFINE_integer(
-    'train_batch_size', default=32, help='Batch size for training.')#2048
+    'train_batch_size', default=128, help='Batch size for training.')#2048
 
 flags.DEFINE_integer(
-    'eval_batch_size', default=32, help='Batch size for evaluation.')#1024
+    'eval_batch_size', default=128, help='Batch size for evaluation.')#1024
 
 flags.DEFINE_integer(#1281167
-    'num_train_images', default=50000, help='Size of training data set.')
+    'num_train_images', default=60000, help='Size of training data set.')
 
 flags.DEFINE_integer(#50000
     'num_eval_images', default=10000, help='Size of evaluation data set.')
 
 flags.DEFINE_integer(
-    'steps_per_eval', default=100,#6255
+    'steps_per_eval', default=4096,#6255
     help=('Controls how often evaluation is performed. Since evaluation is'
           ' fairly expensive, it is advised to evaluate as infrequently as'
           ' possible (i.e. up to --train_steps, which evaluates the model only'
@@ -122,39 +102,6 @@ flags.DEFINE_bool(#False
           ' be a performance drop if host_call function is slow and cannot'
           ' keep up with the TPU-side computation.'))
 
-flags.DEFINE_integer(
-    'iterations_per_loop', default=1251,
-    help=('Number of steps to run on TPU before outfeeding metrics to the CPU.'
-          ' If the number of iterations in the loop would exceed the number of'
-          ' train steps, the loop will exit before reaching'
-          ' --iterations_per_loop. The larger this value is, the higher the'
-          ' utilization on the TPU.'))
-
-flags.DEFINE_integer(#64
-    'num_parallel_calls', default=2,
-    help=('Number of parallel threads in CPU for the input pipeline'))
-
-flags.DEFINE_string(
-    'bigtable_project', None,
-    'The Cloud Bigtable project.  If None, --gcp_project will be used.')
-flags.DEFINE_string(
-    'bigtable_instance', None,
-    'The Cloud Bigtable instance to load data from.')
-flags.DEFINE_string(
-    'bigtable_table', 'imagenet',
-    'The Cloud Bigtable table to load data from.')
-flags.DEFINE_string(
-    'bigtable_train_prefix', 'train_',
-    'The prefix identifying training rows.')
-flags.DEFINE_string(
-    'bigtable_eval_prefix', 'validation_',
-    'The prefix identifying evaluation rows.')
-flags.DEFINE_string(
-    'bigtable_column_family', 'tfexample',
-    'The column family storing TFExamples.')
-flags.DEFINE_string(
-    'bigtable_column_qualifier', 'example',
-    'The column name storing TFExamples.')
 
 flags.DEFINE_string(
     'data_format', default='channels_last',
@@ -186,10 +133,6 @@ flags.DEFINE_string(
     'export_dir',
     default=None,
     help=('The directory where the exported SavedModel will be stored.'))
-flags.DEFINE_bool(
-    'export_to_tpu', default=False,
-    help=('Whether to export additional metagraph with "serve, tpu" tags'
-          ' in addition to "serve" only metagraph.'))
 
 flags.DEFINE_float(
     'base_learning_rate',
@@ -209,7 +152,7 @@ flags.DEFINE_float(
     help=('Weight decay coefficiant for l2 regularization.'))
 
 flags.DEFINE_float(
-    'label_smoothing', default=0.1,
+    'label_smoothing', default=0,#0.1
     help=('Label smoothing parameter used in the softmax_cross_entropy'))
 
 flags.DEFINE_float(
@@ -217,15 +160,16 @@ flags.DEFINE_float(
     help=('Dropout rate for the final output layer.'))
 
 flags.DEFINE_float(
-    'drop_connect_rate', default=0.3,#None
+    'drop_connect_rate', None,
     help=('Drop connect rate for the network.'))
 
 
 flags.DEFINE_integer('log_step_count_steps', 64, 'The number of steps at '
-                     'which the global step information is logged.')
+                     'which the global step information is logged.')#64
 
 flags.DEFINE_bool(
     'use_cache', default=True, help=('Enable cache for training input.'))
+
 
 flags.DEFINE_float(
     'depth_coefficient', default=None,
@@ -234,9 +178,6 @@ flags.DEFINE_float(
 flags.DEFINE_float(
     'width_coefficient', default=None,
     help=('WIdth coefficient for scaling channel size.'))
-
-flags.DEFINE_bool(
-    'use_async_checkpointing', default=False, help=('Enable async checkpoint'))
 
 # The input tensor is in the range of [0, 255], we need to scale them to the
 # range of [0, 1]
@@ -328,7 +269,7 @@ def model_fn(features, labels, mode, params):
 
   # If necessary, in the model_fn, use params['batch_size'] instead the batch
   # size flags (--train_batch_size or --eval_batch_size).
-  batch_size = params['batch_size']   # pylint: disable=unused-variable
+  batch_size = params['batch_size']
 
   # Calculate loss, which includes softmax cross entropy and L2 regularization.
   one_hot_labels = tf.one_hot(labels, FLAGS.num_label_classes)
@@ -364,12 +305,6 @@ def model_fn(features, labels, mode, params):
     learning_rate = utils.build_learning_rate(scaled_lr, global_step,
                                               params['steps_per_epoch'])
     optimizer = utils.build_optimizer(learning_rate)
-    if FLAGS.use_tpu:
-      # When using TPU, wrap the optimizer with CrossShardOptimizer which
-      # handles synchronization details between different TPU cores. To the
-      # user, this should look like regular synchronous training.
-      optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
-
     # Batch normalization requires UPDATE_OPS to be added as a dependency to
     # the train operation.
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -462,7 +397,7 @@ def model_fn(features, labels, mode, params):
           'top_5_accuracy': top_5_accuracy,
       }
 
-    eval_metrics = (metric_fn, [labels, logits])
+    eval_metrics = metric_fn(labels, logits)
 
   num_params = np.sum([np.prod(v.shape) for v in tf.trainable_variables()])
   tf.logging.info('number of trainable parameters: {}'.format(num_params))
@@ -471,13 +406,12 @@ def model_fn(features, labels, mode, params):
     saver = tf.train.Saver(restore_vars_dict)
     return tf.train.Scaffold(saver=saver)
 
-  return tf.contrib.tpu.TPUEstimatorSpec(
+  return tf.estimator.EstimatorSpec(
       mode=mode,
       loss=loss,
       train_op=train_op,
-      host_call=host_call,
-      eval_metrics=eval_metrics,
-      scaffold_fn=_scaffold_fn if has_moving_average_decay else None)
+      eval_metric_ops = eval_metrics)
+      #scaffold=_scaffold_fn if has_moving_average_decay else None
 
 
 def _verify_non_empty_string(value, field_name):
@@ -512,37 +446,21 @@ def main(unused_argv):
     else:
       raise ValueError('input_image_size must be set expect for EfficientNet.')
 
-  save_checkpoints_steps = max(100, FLAGS.iterations_per_loop)
+  save_checkpoints_steps = max(100, FLAGS.steps_per_eval)
 
-  tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-      FLAGS.tpu if (FLAGS.tpu or FLAGS.use_tpu) else '',
-      zone=FLAGS.tpu_zone,
-      project=FLAGS.gcp_project)
-  
-  config = tf.contrib.tpu.RunConfig(
-      cluster=tpu_cluster_resolver,
+  config = tf.estimator.RunConfig(
       model_dir=FLAGS.model_dir,
       save_checkpoints_steps=save_checkpoints_steps,
       log_step_count_steps=FLAGS.log_step_count_steps,
-      session_config=tf.ConfigProto(
-          graph_options=tf.GraphOptions(
-              rewrite_options=rewriter_config_pb2.RewriterConfig(
-                  disable_meta_optimizer=True))),
-      tpu_config=tf.contrib.tpu.TPUConfig(
-          iterations_per_loop=FLAGS.iterations_per_loop,
-          per_host_input_for_training=tf.contrib.tpu.InputPipelineConfig
-          .PER_HOST_V2))  # pylint: disable=line-too-long
+      )
   
   params = dict(
       steps_per_epoch=FLAGS.num_train_images / FLAGS.train_batch_size,
-      use_bfloat16=FLAGS.use_bfloat16)
-  est = tf.contrib.tpu.TPUEstimator(
-      use_tpu=FLAGS.use_tpu,
+      use_bfloat16=FLAGS.use_bfloat16,
+      batch_size=FLAGS.train_batch_size)
+  est = tf.estimator.Estimator(
       model_fn=model_fn,
       config=config,
-      train_batch_size=FLAGS.train_batch_size,
-      eval_batch_size=FLAGS.eval_batch_size,
-      export_to_tpu=FLAGS.export_to_tpu,
       params=params)
 
   # Input pipelines are slightly different (with regards to shuffling and
@@ -552,14 +470,13 @@ def main(unused_argv):
     tf.logging.info('Using fake dataset.')
   else:
     tf.logging.info('Using dataset: %s', FLAGS.data_dir)
-  imagenet_train, imagenet_eval = [
-      imagenet_input.ImageNetInput(
+  data_train, data_eval = [
+      mnist_input.ImageNetInput(
           is_training=is_training,
           data_dir=FLAGS.data_dir,
           transpose_input=FLAGS.transpose_input,
           cache=FLAGS.use_cache and is_training,
           image_size=input_image_size,
-          num_parallel_calls=FLAGS.num_parallel_calls,
           use_bfloat16=FLAGS.use_bfloat16) for is_training in [True, False]
   ]
 
@@ -572,7 +489,7 @@ def main(unused_argv):
       try:
         start_timestamp = time.time()  # This time will include compilation time
         eval_results = est.evaluate(
-            input_fn=imagenet_eval.input_fn,
+            input_fn = data_eval.input_fn,
             steps=eval_steps,
             checkpoint_path=ckpt)
         elapsed_time = int(time.time() - start_timestamp)
@@ -615,7 +532,7 @@ def main(unused_argv):
                 checkpoint_dir=FLAGS.model_dir,
                 save_steps=max(100, FLAGS.iterations_per_loop)))
       est.train(
-          input_fn=imagenet_train.input_fn,
+          input_fn = data_train.input_fn,
           max_steps=FLAGS.train_steps,
           hooks=hooks)
 
@@ -626,7 +543,7 @@ def main(unused_argv):
         # At the end of training, a checkpoint will be written to --model_dir.
         next_checkpoint = min(current_step + FLAGS.steps_per_eval,
                               FLAGS.train_steps)
-        est.train(input_fn=imagenet_train.input_fn, max_steps=next_checkpoint)
+        est.train(input_fn=data_train.input_fn, max_steps=next_checkpoint)
         current_step = next_checkpoint
 
         tf.logging.info('Finished training up to step %d. Elapsed seconds %d.',
@@ -638,7 +555,7 @@ def main(unused_argv):
         # consistent, the evaluated images are also consistent.
         tf.logging.info('Starting to evaluate.')
         eval_results = est.evaluate(
-            input_fn=imagenet_eval.input_fn,
+            input_fn=data_eval.input_fn,
             steps=FLAGS.num_eval_images // FLAGS.eval_batch_size)
         tf.logging.info('Eval results at step %d: %s',
                         next_checkpoint, eval_results)
