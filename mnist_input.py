@@ -81,7 +81,7 @@ class ImageNetInput(object):
     if self.is_training:
       train_dataset = tf.data.Dataset.from_tensor_slices((self.train_data,
                                                           self.train_labels))
-      train_dataset.shuffle(-1)
+      train_dataset.shuffle(1024)
       #train_dataset.repeat()
       return train_dataset
     else:

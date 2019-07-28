@@ -61,7 +61,7 @@ flags.DEFINE_string(
     help='One of {"train_and_eval", "train", "eval"}.')
 
 flags.DEFINE_integer(
-    'train_steps', default=50000,#218949,
+    'train_steps', default=10000,#218949,
     help=('The number of steps to use for training. Default is 218949 steps'
           ' which is approximately 350 epochs at batch size 2048. This flag'
           ' should be adjusted according to the --train_batch_size flag.'))
@@ -83,7 +83,7 @@ flags.DEFINE_integer(#50000
     'num_eval_images', default=10000, help='Size of evaluation data set.')
 
 flags.DEFINE_integer(
-    'steps_per_eval', default=4096,#6255
+    'steps_per_eval', default=1024,#6255
     help=('Controls how often evaluation is performed. Since evaluation is'
           ' fairly expensive, it is advised to evaluate as infrequently as'
           ' possible (i.e. up to --train_steps, which evaluates the model only'
